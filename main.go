@@ -26,7 +26,7 @@ var (
 )
 
 func testSimpleShell(ctx context.Context, clientset *kubernetes.Clientset, kubeConfig *rest.Config) error {
-	pipeReader, stdinPipe := io.Pipe()
+	stdinPipeReader, stdinPipeWriter := io.Pipe()
 
 	stdOut := bytes.Buffer{}
 	stdErr := bytes.Buffer{}
@@ -51,7 +51,7 @@ func testSimpleShell(ctx context.Context, clientset *kubernetes.Clientset, kubeC
 	// Run the shell
 	go func() {
 		err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-			Stdin:  pipeReader,
+			Stdin:  stdinPipeReader,
 			Stdout: &stdOut,
 			Stderr: &stdErr,
 			Tty:    false,
@@ -63,7 +63,7 @@ func testSimpleShell(ctx context.Context, clientset *kubernetes.Clientset, kubeC
 
 	time.Sleep(1 * time.Second) // Wait for the shell to start
 
-	stdinPipe.Write([]byte("echo 'Hello, World!'\n"))
+	stdinPipeWriter.Write([]byte("echo 'Hello, World!'\n"))
 
 	time.Sleep(1 * time.Second) // Wait for command to complete
 
@@ -73,7 +73,7 @@ func testSimpleShell(ctx context.Context, clientset *kubernetes.Clientset, kubeC
 	fmt.Printf("cmdOut: %s\n", cmdOut)
 	fmt.Printf("cmdErr: %s\n", cmdErr)
 
-	pipeReader.Close()
+	stdinPipeReader.Close()
 
 	return nil
 }
