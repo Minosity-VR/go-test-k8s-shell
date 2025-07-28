@@ -25,11 +25,18 @@ var (
 	// CONTAINER_NAME =
 )
 
+func writeToPipe(pipeWriter *io.PipeWriter, data []byte, result chan error) {
+	_, err := pipeWriter.Write(data)
+	result <- err
+}
+
 func testSimpleShell(ctx context.Context, clientset *kubernetes.Clientset, kubeConfig *rest.Config) error {
 	stdinPipeReader, stdinPipeWriter := io.Pipe()
 
 	stdOut := bytes.Buffer{}
 	stdErr := bytes.Buffer{}
+
+	done := make(chan struct{})
 
 	// Create the exec request
 	req := clientset.CoreV1().RESTClient().Post().
@@ -59,11 +66,30 @@ func testSimpleShell(ctx context.Context, clientset *kubernetes.Clientset, kubeC
 		if err != nil {
 			fmt.Printf("shell session error: %v\n", err)
 		}
+		close(done)
 	}()
 
 	time.Sleep(1 * time.Second) // Wait for the shell to start
 
+	// This version will hang on the write
 	stdinPipeWriter.Write([]byte("echo 'Hello, World!'\n"))
+
+	// This version will not hang on the write. It requires
+	// - a done channel in the goroutine running the StreamWithContext
+	// - a result channel to receive the error from the write
+	// - the write to be started in a new goroutine
+	// - a select case to either wait for the write, or catch the done signal
+	result := make(chan error)
+	go writeToPipe(stdinPipeWriter, []byte("echo 'Hello, World!'\n"), result)
+
+	select {
+	case err := <-result:
+		if err != nil {
+			fmt.Printf("error writing to pipe: %v\n", err)
+		}
+	case <-done:
+		fmt.Println("done")
+	}
 
 	time.Sleep(1 * time.Second) // Wait for command to complete
 
